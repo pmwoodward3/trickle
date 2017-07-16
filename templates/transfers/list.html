@@ -1,0 +1,6 @@
+{{range $t := $.Transfers}}
+    {{if $t.IsReady}}
+        <iframe frameborder="0" width="100%" src="/trickle/transfers/status/{{$t.ID}}" class="transfer-item"></iframe>
+    {{end}}
+{{end}}
+

@@ -1,0 +1,47 @@
+{{template "header.html" .}}
+
+{{$percent := percent $.Transfer.CompletedSize $.Transfer.TotalSize}}
+<table class="ui single line fixed table">
+    <tbody>
+        <tr>
+            <td class="twelve wide">
+                <h4 class="truncate">
+                    {{$.Transfer.String}}
+                </h4>
+            </td>
+            <td class="four wide">
+                <a target="_parent" href="/trickle/transfers/cancel/{{$.Transfer.ID}}" data-prompt="Cancel {{$.Transfer.String}}?" class="confirm ui right floated mini red basic button">Cancel</i></a>
+            </td>
+        </tr>
+        {{if $.Transfer.CompletedSize}}
+        <tr>
+            <td colspan="2">
+                <div class="ui indicating progress" data-percent="{{$percent | printf "%.0f"}}">
+                    <div class="bar"></div>
+                    <div class="label">
+                        {{bytes $.Transfer.CompletedSize}}
+                        ({{$percent | printf "%.0f"}}%)
+                            of
+                        {{bytes $.Transfer.TotalSize}}
+                    </div>
+                </div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+
+<script>
+    $(document).ready(function() {
+        setTimeout(function() {
+            window.location.reload(false);
+        }, 3500);
+
+        $('.progress').progress({
+            duration: 0,
+            showActivity: false
+        });
+    });
+</script>
+
+{{template "footer.html" .}}

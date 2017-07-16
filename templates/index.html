@@ -1,0 +1,79 @@
+{{template "header.html" .}}
+
+<div class="ui container">
+
+    <form class="ui large form" method="POST" action="/trickle/transfers/start">
+        <div class="field">
+            <div class="ui action input">
+                <input type="text" name="target" pattern="^.{3,2000}$" title="magnet:... or http://..." placeholder="Enter a download URL e.g. magnet:... or http://ubuntu.org/ubuntu-16.04.torrent" autofocus>
+                <button type="submit" class="ui primary button">Start</button>
+            </div>
+        </div>
+    </form>
+
+    <div class="ui hidden divider"></div>
+
+    <div id="transfers" class="ui container">
+        {{template "transfers/list.html" .}}
+    </div>
+
+    <div class="ui hidden divider"></div>
+
+    <div id="downloads" class="ui container">
+        {{template "downloads/list.html" .}}
+    </div>
+
+    <div class="ui hidden divider"></div>
+
+    <h5 class="ui center aligned header">
+        {{$.DiskInfo.UsedGB}} GB ({{$.DiskInfo.UsedPercent | printf "%.0f"}}%) of {{$.DiskInfo.TotalGB}} GB
+    </h5> 
+
+    <div class="ui hidden divider"></div>
+
+    <h5 class="ui center aligned header">
+        Private podcast URL: <span>https://{{$.HTTPHost}}</span><span>/trickle/podcast/{{$.FeedSecret}}</span>
+        <br>
+        <a class="confirm ui mini basic button" data-prompt="Generate a new secret feed URL?" href="/trickle/feed/reset">reset</a>
+    </h5>
+
+</div>
+
+
+
+<script>
+    $(document).ready(function() {
+        var poller = function(target, url, delay) {
+            var old = '';
+            var p = function() {
+                $.ajax({
+                    url: url,
+                    type: 'GET',
+                    success: function(data) {
+                        if (data.substring(0, 50).toLowerCase().indexOf("doctype") !== -1) {
+                            return;
+                        }
+                        if (data !== old) {
+                            $(target).html(data);
+                            old = data;
+                        }
+                    },
+                    complete: function() {
+                        setTimeout(p, delay);
+                    }
+                });
+            };
+            p();
+        };
+
+        // Transfers should be polled immediately.
+        poller('#transfers', '/trickle/transfers/list', 2500);
+
+        // Don't start polling downloads immediately, because it's already fresh.
+        setTimeout(function() {
+            poller('#downloads', '/trickle/downloads/list', 2500);
+        }, 5000);
+    });
+</script>
+
+{{template "footer.html" .}}
