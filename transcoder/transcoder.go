@@ -1,4 +1,4 @@
-package main
+package transcoder
 
 import (
 	"fmt"
@@ -66,7 +66,7 @@ func (t *Transcoder) dequeue(srcname string) {
 func (t *Transcoder) Cancel(srcname string) error {
 	t.Lock()
 	defer t.Unlock()
-	srcname, tmpname, _ := transcoder.filenames(srcname)
+	srcname, tmpname, _ := t.filenames(srcname)
 
 	if t.queued(srcname) {
 		log.Infof("dequeing %q", srcname)

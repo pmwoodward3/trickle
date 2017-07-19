@@ -11,7 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	//log "github.com/Sirupsen/logrus"
+
+	"github.com/tricklecloud/trickle/downloader"
 )
 
 var ErrDownloadNotFound = errors.New("download not found")
@@ -265,35 +266,35 @@ func ActiveDownload(id string) (bool, error) {
 }
 
 // Transfers
-func ListTransfers() []Transfer {
-	return downloader.List()
+func ListTransfers() []downloader.Transfer {
+	return dler.List()
 }
 
 func StartTransfer(target string) error {
-	_, err := downloader.Add(target)
+	_, err := dler.Add(target)
 	return err
 }
 
 func CancelTransfer(id string) error {
-	return downloader.Remove(id)
+	return dler.Remove(id)
 }
 
-func FindTransfer(id string) (Transfer, error) {
-	return downloader.Find(id)
+func FindTransfer(id string) (downloader.Transfer, error) {
+	return dler.Find(id)
 }
 
 // Transcoding
 
 func StartTranscode(path string) error {
-	return transcoder.Add(path)
+	return tcer.Add(path)
 }
 
 func CancelTranscode(path string) error {
-	return transcoder.Cancel(path)
+	return tcer.Cancel(path)
 }
 
 func ActiveTranscode(path string) bool {
-	return transcoder.Active(path)
+	return tcer.Active(path)
 }
 
 func AddFriend(host string) error {

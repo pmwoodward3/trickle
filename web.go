@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tricklecloud/trickle/downloader"
+
 	log "github.com/Sirupsen/logrus"
 	humanize "github.com/dustin/go-humanize"
 	httprouter "github.com/julienschmidt/httprouter"
@@ -37,8 +39,10 @@ type Response struct {
 
 	File File
 
-	Transfer  Transfer
-	Transfers []Transfer
+	Transfer  downloader.Transfer
+	Transfers []downloader.Transfer
+
+	Version string
 }
 
 var (
@@ -70,12 +74,17 @@ var (
 )
 
 func NewResponse(r *http.Request, ps httprouter.Params) *Response {
+	di, err := NewDiskInfo(downloadDir)
+	if err != nil {
+		panic(err)
+	}
 	return &Response{
 		Request:    r,
 		User:       ps.ByName("user"),
 		HTTPHost:   httpHost,
-		DiskInfo:   NewDiskInfo(),
+		DiskInfo:   di,
 		FeedSecret: feedSecret.Get(),
+		Version:    version,
 	}
 }
 

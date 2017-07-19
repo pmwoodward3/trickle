@@ -31,11 +31,19 @@
 
     <div class="ui hidden divider"></div>
 
-    <h5 class="ui center aligned header">
-        Private podcast URL: <span>https://{{$.HTTPHost}}</span><span>/trickle/podcast/{{$.FeedSecret}}</span>
-        <br>
-        <a class="confirm ui mini basic button" data-prompt="Generate a new secret feed URL?" href="/trickle/feed/reset">reset</a>
-    </h5>
+    <div class="ui one column grid">
+        <div class="center aligned one column row">
+            <div class="column">
+                <span>https://{{$.HTTPHost}}</span><span>/trickle/podcast/{{$.FeedSecret}}</span>
+                <span data-tooltip="Your private podcast URL (do not share)">
+                    <i class="bordered help icon"></i>
+                </span>
+                <a class="confirm ui mini basic icon button" href="/trickle/feed/reset" data-prompt="Generate new private podcast URL?" data-tooltip="Reset your private podcast URL">
+                    <i class="eraser icon"></i>
+                </a>
+            </div>
+        </div>
+    </div>
 
 </div>
 

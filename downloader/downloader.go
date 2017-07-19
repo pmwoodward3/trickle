@@ -1,8 +1,9 @@
-package main
+package downloader
 
 import (
 	"context"
 	"encoding/json"
+    "net/http"
 	"io/ioutil"
 
 	"crypto/md5"
@@ -37,17 +38,20 @@ var (
 
 type Downloader struct {
 	mu        sync.RWMutex
+    dldir     string
+    indir     string
 	torrent   *torrent.Client
 	diskspace func() int64
 	transfers []*Transfer
+    identity string // our http host (e.g. some.example.com)
 }
 
-func NewDownloader(addr string, diskspace func() int64) *Downloader {
+func NewDownloader(dldir, indir, taddr, identity string, diskspace func() int64) *Downloader {
 	client, err := torrent.NewClient(&torrent.Config{
-		DataDir:             incomingDir,
+		DataDir:             indir,
 		UploadRateLimiter:   rate.NewLimiter(rate.Limit(torrentMaxUploadMbits/8), torrentMaxUploadMbits/4),
 		DownloadRateLimiter: rate.NewLimiter(rate.Limit(torrentMaxDownloadMbits/8), torrentMaxDownloadMbits/4),
-		ListenAddr:          addr,
+		ListenAddr:          taddr,
 		Seed:                false,
 		Debug:               false,
 	})
@@ -58,6 +62,8 @@ func NewDownloader(addr string, diskspace func() int64) *Downloader {
 	l := &Downloader{
 		torrent:   client,
 		diskspace: diskspace,
+        dldir: dldir,
+        indir: indir,
 	}
 	go l.manager()
 	return l
@@ -77,6 +83,7 @@ type Transfer struct {
 	// Friend downloads
 	DownloadID   string
 	DownloadSize int64
+    DownloadInDir string
 }
 
 //
@@ -204,7 +211,10 @@ func (l *Downloader) transferFriend(ctx context.Context, t *Transfer) error {
 		return err
 	}
 
-	var files []FriendFile
+	var files []struct {
+        ID string
+        Size int64
+    }
 	if err := json.Unmarshal(b, &files); err != nil {
 		return err
 	}
@@ -229,14 +239,15 @@ func (l *Downloader) transferFriend(ctx context.Context, t *Transfer) error {
 		return ErrInsufficientDisk
 	}
 
+	indir := filepath.Join(l.indir, downloadID)
+	dldir := filepath.Join(l.dldir, downloadID)
+
 	// Store ID for later.
 	l.Lock("transfer friend id")
 	t.DownloadID = downloadID
 	t.DownloadSize = downloadSize
+    t.DownloadInDir = indir
 	l.Unlock("transfer friend id")
-
-	indir := filepath.Join(incomingDir, downloadID)
-	dldir := filepath.Join(downloadDir, downloadID)
 
 	// Download each file.
 	for _, file := range files {
@@ -250,7 +261,7 @@ func (l *Downloader) transferFriend(ctx context.Context, t *Transfer) error {
 			}
 
 			// Write file to directory.
-			endpoint := fmt.Sprintf("https://%s/trickle/v1/downloads/stream/%s/%s?friend=%s", host, downloadID, file.ID, httpHost)
+			endpoint := fmt.Sprintf("https://%s/trickle/v1/downloads/stream/%s/%s?friend=%s", host, downloadID, file.ID, l.identity)
 
 			res, err := GET(ctx, endpoint)
 			if err != nil {
@@ -331,8 +342,8 @@ func (l *Downloader) transferTorrent(ctx context.Context, t *Transfer) error {
 		if t.Torrent.BytesCompleted() >= info.TotalLength() {
 			t.Torrent.Drop()
 
-			inname := filepath.Join(incomingDir, info.Name) // "/data/.dls/some dir" or "/data/.dls/some file.txt"
-			dlname := filepath.Join(downloadDir, info.Name) // "/data/some dir" or "/data/some file.txt"
+			inname := filepath.Join(l.indir, info.Name) // "/data/.dls/some dir" or "/data/.dls/some file.txt"
+			dlname := filepath.Join(l.dldir, info.Name) // "/data/some dir" or "/data/some file.txt"
 			fi, err := os.Stat(inname)
 			if err != nil {
 				return err
@@ -341,7 +352,7 @@ func (l *Downloader) transferTorrent(ctx context.Context, t *Transfer) error {
 			// If its a single file, put it in a directory e.g. "/data/file.txt" -> "/data/file/file.txt"
 			if !fi.IsDir() {
 				basename := strings.TrimSuffix(info.Name, filepath.Ext(info.Name))
-				newdir := filepath.Join(downloadDir, basename)
+				newdir := filepath.Join(l.dldir, basename)
 				if err := os.Mkdir(newdir, 0755); err != nil {
 					return err
 				}
@@ -486,7 +497,7 @@ func (l *Downloader) Remove(id string) error {
 	if t.Torrent != nil {
 		t.Torrent.Drop()
 		if info := t.Torrent.Info(); info != nil {
-			dir := filepath.Join(incomingDir, info.Name)
+			dir := filepath.Join(l.indir, info.Name)
 			if _, err := os.Stat(dir); err == nil {
 				if err := os.RemoveAll(dir); err != nil {
 					return fmt.Errorf("failed to remove torrent dir %s: %s", dir, err)
@@ -516,6 +527,7 @@ func (l *Downloader) remove(id string) {
 // Transfer
 //
 
+// String returns the title of the transfer.
 func (t Transfer) String() string {
 	if t.DownloadID != "" {
 		return t.DownloadID
@@ -529,16 +541,12 @@ func (t Transfer) String() string {
 		return dn
 	}
 	return fmt.Sprintf("Loading %s link...", t.URL.Scheme)
-
 }
 
-func (t Transfer) HasError() bool {
-	return t.Error != nil
-}
-
+// CompletedSize returns the downloaded bytes.
 func (t Transfer) CompletedSize() int64 {
 	if t.DownloadID != "" {
-		n, err := du(filepath.Join(incomingDir, t.DownloadID))
+		n, err := du(t.DownloadInDir)
 		if err != nil {
 			log.Error(err)
 			return 0
@@ -551,6 +559,7 @@ func (t Transfer) CompletedSize() int64 {
 	return 0
 }
 
+// TotalSize returns the completed size of the download in bytes.
 func (t Transfer) TotalSize() int64 {
 	if t.DownloadSize > 0 {
 		return t.DownloadSize
@@ -563,6 +572,7 @@ func (t Transfer) TotalSize() int64 {
 	return 0
 }
 
+// IsReady returns true when info about the transfer is available.
 func (t Transfer) IsReady() bool {
 	if t.Torrent != nil {
 		return t.Torrent.Info() != nil
@@ -570,10 +580,52 @@ func (t Transfer) IsReady() bool {
 	return true
 }
 
+// IsActive returns true when the transfer is started but not completed.
 func (t Transfer) IsActive() bool {
-	return !t.Started.IsZero() && t.Completed.IsZero()
+	return t.IsStarted() && !t.IsCompleted()
 }
 
+// IsStarted returns true when the transfer has been started.
+func (t Transfer) IsStarted() bool {
+	return !t.Completed.IsZero()
+}
+
+// IsCompleted returns true when the transfer has been completed.
 func (t Transfer) IsCompleted() bool {
 	return !t.Completed.IsZero()
 }
+
+func GET(ctx context.Context, rawurl string) (*http.Response, error) {
+	httpClient := &http.Client{}
+
+	req, err := http.NewRequest("GET", rawurl, nil)
+	if err != nil {
+		return nil, err
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	} else {
+		httpClient.Timeout = 10 * time.Second
+	}
+
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 400 {
+		return nil, fmt.Errorf("request failed: %s", http.StatusText(res.StatusCode))
+	}
+	return res, nil
+}
+
+func du(path string) (int64, error) {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return err
+	})
+	return size, err
+}
+

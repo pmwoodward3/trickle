@@ -11,12 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tricklecloud/trickle/downloader"
+	"github.com/tricklecloud/trickle/transcoder"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/eduncan911/podcast"
 	"github.com/julienschmidt/httprouter"
 )
 
 var (
+	version string
+
 	downloadDir string
 	incomingDir string
 
@@ -38,10 +43,12 @@ var (
 	feedSecret *Secret
 
 	// transcoder
-	transcoder *Transcoder
+	tcer *transcoder.Transcoder
 
 	// downloader
-	downloader *Downloader
+	dler *downloader.Downloader
+
+	httpReadLimit int64 = 2 * (1024 * 1024) // 2 MB
 )
 
 func init() {
@@ -399,10 +406,10 @@ func v1Status(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	}
 
 	status := func() string {
-		if transcoder.Busy() {
+		if tcer.Busy() {
 			return "busy"
 		}
-		if downloader.Busy() {
+		if dler.Busy() {
 			return "busy"
 		}
 		return "idle"
@@ -590,11 +597,15 @@ func main() {
 	feedSecret = NewSecret(filepath.Join(downloadDir, ".secret"))
 
 	// transcoder
-	transcoder = NewTranscoder()
+	tcer = transcoder.NewTranscoder()
 
 	// downloader
-	downloader = NewDownloader(torrentListenAddr, func() int64 {
-		n := NewDiskInfo().Free()
+	dler = downloader.NewDownloader(downloadDir, incomingDir, torrentListenAddr, httpHost, func() int64 {
+		di, err := NewDiskInfo(downloadDir)
+		if err != nil {
+			panic(err)
+		}
+		n := di.Free()
 		return n - int64(float64(n)*0.05) // reserve 5% of the disk
 	})
 
@@ -615,11 +626,7 @@ func main() {
 	r.RedirectFixedPath = false
 	r.HandleMethodNotAllowed = false
 	r.HandleOPTIONS = false
-	r.PanicHandler = func(w http.ResponseWriter, r *http.Request, recv interface{}) {
-		log.Errorf("panic recovery for %v", recv)
-		Error(w, fmt.Errorf("&nbsp;"))
-		return
-	}
+	//r.PanicHandler = func(w http.ResponseWriter, r *http.Request, recv interface{}) { log.Errorf("panic recovery for %v", recv) Error(w, fmt.Errorf("&nbsp;")) return }
 
 	// Feed
 	r.GET(prefix("/podcast/:secret"), Log(feedPodcast))

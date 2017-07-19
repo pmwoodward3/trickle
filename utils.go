@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -38,22 +37,14 @@ func (d *DiskInfo) UsedPercent() float64 {
 	return (float64(d.used) / float64(d.Total())) * 100
 }
 
-func NewDiskInfo() *DiskInfo {
-	free, used, err := diskinfo(downloadDir)
-	if err != nil {
-		log.Errorf("failed to get diskinfo: %s", err)
-	}
-	return &DiskInfo{int64(free), int64(used)}
-}
-
-func diskinfo(path string) (uint64, uint64, error) {
+func NewDiskInfo(path string) (*DiskInfo, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {
-		return 0, 0, err
+		return nil, fmt.Errorf("diskinfo failed: %s", err)
 	}
 	free := stat.Bavail * uint64(stat.Bsize)
 	used := (stat.Blocks * uint64(stat.Bsize)) - free
-	return free, used, nil
+	return &DiskInfo{int64(free), int64(used)}, nil
 }
 
 func ls(path string) ([]os.FileInfo, []os.FileInfo, error) {
@@ -78,30 +69,21 @@ func ls(path string) ([]os.FileInfo, []os.FileInfo, error) {
 	return dirs, files, nil
 }
 
-func du(path string) (int64, error) {
-	var size int64
-	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			size += info.Size()
-		}
-		return err
-	})
-	return size, err
-}
-
 func GET(ctx context.Context, rawurl string) (*http.Response, error) {
-	return httpRequest("GET", ctx, rawurl)
+	return req("GET", ctx, rawurl)
 }
 
 func POST(ctx context.Context, rawurl string) (*http.Response, error) {
-	return httpRequest("POST", ctx, rawurl)
+	return req("POST", ctx, rawurl)
 }
 
 func DELETE(ctx context.Context, rawurl string) (*http.Response, error) {
-	return httpRequest("DELETE", ctx, rawurl)
+	return req("DELETE", ctx, rawurl)
 }
 
-func httpRequest(method string, ctx context.Context, rawurl string) (*http.Response, error) {
+const httpUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.87 Safari/537.36"
+
+func req(method string, ctx context.Context, rawurl string) (*http.Response, error) {
 	httpClient := &http.Client{}
 
 	log.Debugf("HTTP request: %s %q (%s)", method, rawurl, ctx)
@@ -117,8 +99,7 @@ func httpRequest(method string, ctx context.Context, rawurl string) (*http.Respo
 
 	log.Debugf("HTTP request: %s %q (%s)", method, rawurl, ctx)
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.87 Safari/537.36")
-
+	req.Header.Set("User-Agent", httpUserAgent)
 	res, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
